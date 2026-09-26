@@ -216,9 +216,9 @@ def main():
         "dados_sinteticos/historico_share.json": historico,
     }
 
-    print("\nEnviando dados para a camada Bronze no Azure Data Lake...")
+    print("\nEnviando dados para a camada Silver no Azure Data Lake...")
     for caminho_blob, dados in arquivos_upload.items():
-        datalake.upload_json("bronze", caminho_blob, dados)
+        datalake.upload_json("silver", caminho_blob, dados)
         print(f"-> {caminho_blob} enviado com sucesso! ({len(dados) if isinstance(dados, list) else 1} registros)")
 
     print("\nPipeline de dados sintéticos concluído com sucesso!")
