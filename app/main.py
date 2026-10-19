@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.routers.loja_router import router as loja_router
+from app.routers.painel_router import router as painel_router
 
 app = FastAPI(
     title="API GeoSmart - Back-end",
@@ -17,3 +18,4 @@ app.add_middleware(
 )
 
 app.include_router(loja_router)
+app.include_router(painel_router)
