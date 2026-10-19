@@ -18,7 +18,7 @@ class LojaService:
 
     def consultar_lojas(self, uf: str, tier: str, skip: int, limit: int) -> list:
         query = {}
-        if uf: query["uf"] = uf.upper()
+        if uf: query["endereco_uf"] = uf.upper()
         if tier: query["tier_loja"] = tier.upper()
         return self.repository.listar_com_filtros(query, skip, limit)
 
