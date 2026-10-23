@@ -1,92 +1,188 @@
-import React from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup } from 'react-leaflet';
+import React, { useEffect, useMemo } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 
-const lojasMock = [
-  { id: 1, nome: "Loja A - Centro", lat: -23.5505, lng: -46.6333, cluster_id: 0, producao: "R$ 150.000", sucom: "SUCOM São Paulo", gecom: "GECOM Capital", gefin: "GEFIN Centro" },
-  { id: 2, nome: "Loja B - Zona Sul", lat: -23.6500, lng: -46.7000, cluster_id: 0, producao: "R$ 85.000", sucom: "SUCOM São Paulo", gecom: "GECOM Capital", gefin: "GEFIN Paulista" },
-  { id: 3, nome: "Loja C - Campinas", lat: -22.9099, lng: -47.0626, cluster_id: 1, producao: "R$ 210.000", sucom: "SUCOM São Paulo", gecom: "GECOM Interior", gefin: "GEFIN Campinas" },
-  { id: 4, nome: "Loja D - Sorocaba", lat: -23.5015, lng: -47.4581, cluster_id: 1, producao: "R$ 95.000", sucom: "SUCOM São Paulo", gecom: "GECOM Interior", gefin: "GEFIN Sorocaba" },
-  { id: 5, nome: "Loja E - Rio de Janeiro", lat: -22.9068, lng: -43.1729, cluster_id: 2, producao: "R$ 300.000", sucom: "SUCOM Rio de Janeiro", gecom: "GECOM Litoral", gefin: "GEFIN Copacabana" }
+// Paleta GIS de 32 cores de máximo contraste (Glasbey / Kelly) - zero cores repetidas ou confusas
+const PALETA_ALTO_CONTRASTE = [
+    "#E6194B", // 1. Vermelho Vivo
+    "#3CB44B", // 2. Verde Esmeralda
+    "#FFE119", // 3. Amarelo Ouro
+    "#0082C8", // 4. Azul Royal
+    "#F58231", // 5. Laranja Forte
+    "#911EB4", // 6. Roxo Intenso
+    "#46F0F0", // 7. Ciano Brilhante
+    "#F032E6", // 8. Magenta
+    "#D2F53C", // 9. Lima Neon
+    "#008080", // 10. Verde-Petroleo (Teal)
+    "#AA6E28", // 11. Marrom Terra
+    "#800000", // 12. Bordô / Vinho
+    "#808000", // 13. Verde Oliva
+    "#000080", // 14. Azul Marinho Profundo
+    "#FF6B6B", // 15. Coral
+    "#00FF7F", // 16. Verde Primavera
+    "#FFD700", // 17. Dourado Escuro
+    "#FF1493", // 18. Rosa Choque (Deep Pink)
+    "#1E90FF", // 19. Azul Celeste
+    "#FF4500", // 20. Laranja Avermelhado
+    "#2E8B57", // 21. Verde Floresta
+    "#DA70D6", // 22. Orquídea
+    "#B8860B", // 23. Ocre Escuro
+    "#40E0D0", // 24. Turquesa
+    "#DC143C", // 25. Carmesim
+    "#7CFC00", // 26. Verde Grama
+    "#9932CC", // 27. Violeta Escuro
+    "#FF8C00", // 28. Âmbar
+    "#20B2AA", // 29. Verde Mar Claro
+    "#C71585", // 30. Violeta Médio
+    "#556B2F", // 31. Musgo Escuro
+    "#CD853F"  // 32. Bronze / Peru
 ];
 
-const getColorByCluster = (clusterId) => {
-  if (clusterId === null || clusterId === undefined) return "#6b7280";
-  const goldenRatioConjugate = 0.618033988749895;
-  let h = (clusterId * goldenRatioConjugate) % 1;
-  let s = 0.7;
-  let l = 0.5;
+// Subcomponente para centralizar o mapa automaticamente quando o usuário aplica um filtro
+const AjustarVisaoMapa = ({ lojas }) => {
+    const map = useMap();
 
-  const hue2rgb = (p, q, t) => {
-    if (t < 0) t += 1;
-    if (t > 1) t -= 1;
-    if (t < 1/6) return p + (q - p) * 6 * t;
-    if (t < 1/2) return q;
-    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
-    return p;
-  };
+    useEffect(() => {
+        if (!lojas || lojas.length === 0) return;
+        if (lojas.length > 15000) {
+            map.setView([-14.2350, -51.9253], 4);
+            return;
+        }
+        const lats = lojas.map(l => l.lat);
+        const lngs = lojas.map(l => l.lng);
+        const minLat = Math.min(...lats);
+        const maxLat = Math.max(...lats);
+        const minLng = Math.min(...lngs);
+        const maxLng = Math.max(...lngs);
 
-  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-  const p = 2 * l - q;
-  const r = Math.round(hue2rgb(p, q, h + 1/3) * 255);
-  const g = Math.round(hue2rgb(p, q, h) * 255);
-  const b = Math.round(hue2rgb(p, q, h - 1/3) * 255);
+        map.fitBounds([[minLat, minLng], [maxLat, maxLng]], { padding: [30, 30], maxZoom: 12 });
+    }, [lojas, map]);
 
-  const toHex = x => {
-    const hex = x.toString(16);
-    return hex.length === 1 ? '0' + hex : hex;
-  };
-
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+    return null;
 };
 
-const MapDashboard = ({ sucomSelecionada, gecomSelecionada, gefinSelecionada }) => {
-  const centroBrasil = [-14.2350, -51.9253];
+const MapDashboard = ({ lojas = [], carregando }) => {
+    const centroBrasil = [-14.2350, -51.9253];
 
-  const lojasFiltradas = lojasMock.filter(loja => {
-    const matchSucom = sucomSelecionada ? loja.sucom === sucomSelecionada : true;
-    const matchGecom = gecomSelecionada ? loja.gecom === gecomSelecionada : true;
-    const matchGefin = gefinSelecionada ? loja.gefin === gefinSelecionada : true;
+    // Distribui as cores espacialmente entre os clusters visíveis para que vizinhos tenham cores opostas
+    const mapaCoresClusters = useMemo(() => {
+        const somaCoords = {};
+        lojas.forEach(l => {
+            const cid = l.cluster_id;
+            if (cid === null || cid === undefined) return;
+            if (!somaCoords[cid]) {
+                somaCoords[cid] = { lat: 0, lng: 0, count: 0 };
+            }
+            somaCoords[cid].lat += l.lat;
+            somaCoords[cid].lng += l.lng;
+            somaCoords[cid].count += 1;
+        });
 
-    return matchSucom && matchGecom && matchGefin;
-  });
+        const clusters = Object.keys(somaCoords).map(cid => ({
+            id: Number(cid),
+            lat: somaCoords[cid].lat / somaCoords[cid].count,
+            lng: somaCoords[cid].lng / somaCoords[cid].count
+        }));
 
-  return (
-    <div className="w-full h-full bg-white rounded-xl shadow-lg border border-gray-200 overflow-hidden">
-      <MapContainer 
-        center={centroBrasil} 
-        zoom={5} 
-        className="w-full h-full z-0"
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        
-        {lojasFiltradas.map((loja) => (
-          <CircleMarker
-            key={loja.id}
-            center={[loja.lat, loja.lng]}
-            radius={8}
-            pathOptions={{ 
-              color: getColorByCluster(loja.cluster_id), 
-              fillColor: getColorByCluster(loja.cluster_id), 
-              fillOpacity: 0.7 
-            }}
-          >
-            <Popup>
-              <div className="font-sans">
-                <h3 className="font-bold text-gray-800">{loja.nome}</h3>
-                <p className="text-xs text-gray-500 mb-1">{loja.sucom} | {loja.gecom} | {loja.gefin}</p>
-                <p className="text-sm text-gray-700">Território (Cluster): <strong>{loja.cluster_id}</strong></p>
-                <p className="text-sm font-semibold text-green-600 mt-1">Produção: {loja.producao}</p>
-              </div>
-            </Popup>
-          </CircleMarker>
-        ))}
-      </MapContainer>
-    </div>
-  );
+        if (clusters.length === 0) return {};
+
+        // Calcula o centroide geral da visão atual e ordena os clusters por ângulo + distância
+        const mediaLat = clusters.reduce((acc, c) => acc + c.lat, 0) / clusters.length;
+        const mediaLng = clusters.reduce((acc, c) => acc + c.lng, 0) / clusters.length;
+
+        clusters.sort((a, b) => {
+            const angA = Math.atan2(a.lat - mediaLat, a.lng - mediaLng);
+            const angB = Math.atan2(b.lat - mediaLat, b.lng - mediaLng);
+            return angA - angB;
+        });
+
+        // Atribui cores dando saltos primos (passo 7) na paleta para afastar ainda mais clusters adjacentes
+        const dicionarioCores = {};
+        const totalPaleta = PALETA_ALTO_CONTRASTE.length;
+        clusters.forEach((c, idx) => {
+            const indiceCor = (idx * 7) % totalPaleta;
+            dicionarioCores[c.id] = PALETA_ALTO_CONTRASTE[indiceCor];
+        });
+
+        return dicionarioCores;
+    }, [lojas]);
+
+    const obterCorCluster = (clusterId) => {
+        if (clusterId === null || clusterId === undefined) return "#6b7280";
+        return mapaCoresClusters[clusterId] || PALETA_ALTO_CONTRASTE[Number(clusterId) % PALETA_ALTO_CONTRASTE.length];
+    };
+
+    return (
+        <div className="w-full h-full bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden relative">
+            {carregando && (
+                <div className="absolute inset-0 bg-white/80 z-[1000] flex items-center justify-center">
+                    <div className="text-center">
+                        <div className="w-8 h-8 border-4 border-[#CC092F] border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                        <p className="text-xs font-bold text-gray-700">Consultando Azure Cosmos DB...</p>
+                    </div>
+                </div>
+            )}
+
+            <MapContainer
+                center={centroBrasil}
+                zoom={4}
+                preferCanvas={true}
+                className="w-full h-full z-0"
+            >
+               <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+                />
+
+                <AjustarVisaoMapa lojas={lojas} />
+
+                {lojas.map((loja) => {
+                    const cor = obterCorCluster(loja.cluster_id);
+                    return (
+                        <CircleMarker
+                            key={loja.cnpj}
+                            center={[loja.lat, loja.lng]}
+                            radius={5.5}
+                            pathOptions={{
+                                color: "#1f2937",      // Contorno escuro fino destaca cores claras (amarelo, lima, ciano) no mapa claro
+                                fillColor: cor,
+                                fillOpacity: 0.92,
+                                weight: 0.8
+                            }}
+                        >
+                            <Popup>
+                                <div className="font-sans min-w-[200px]">
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-700 float-right">
+                                        {loja.tier_loja}
+                                    </span>
+                                    <h3 className="font-bold text-gray-900 text-sm pr-12">{loja.nome}</h3>
+                                    <p className="text-[11px] text-gray-500 mb-2">
+                                        CNPJ: {loja.cnpj} | {loja.municipio} - {loja.uf}
+                                    </p>
+                                    <div className="border-t border-gray-100 pt-1.5 space-y-1 text-xs">
+                                        <p className="text-gray-700 flex items-center gap-1.5">
+                                            Cluster K-Means:
+                                            <span
+                                                className="inline-block w-3 h-3 rounded-full border border-gray-400"
+                                                style={{ backgroundColor: cor }}
+                                            ></span>
+                                            <strong>#{loja.cluster_id}</strong>
+                                        </p>
+                                        <p className="text-gray-700">
+                                            Carteira GEFIN: <strong>{loja.gefin_id}</strong>
+                                        </p>
+                                        <p className="font-bold text-emerald-700">
+                                            Produção Média: {Number(loja.producao_media || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                        </p>
+                                    </div>
+                                </div>
+                            </Popup>
+                        </CircleMarker>
+                    );
+                })}
+            </MapContainer>
+        </div>
+    );
 };
 
 export default MapDashboard;
