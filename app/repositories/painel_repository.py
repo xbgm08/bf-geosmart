@@ -4,15 +4,21 @@ class PainelRepository:
     def __init__(self, db: Database):
         self.db = db
         nomes_col = db.list_collection_names()
-        
+
         self.lojas_col = db["lojas"]
-        col_colab = "colaboradores" in nomes_col
-        self.colaboradores_col = db[col_colab]
-        
-        self.kpis_loja_col = db["kpis_loja_mes"] if "kpis_loja_mes" in nomes_col else None
+        self.colaboradores_col = (
+            db["colaboradores"] if "colaboradores" in nomes_col else None
+        )
+
+        self.kpis_loja_col = (
+            db["kpis_loja_mes"] if "kpis_loja_mes" in nomes_col else None
+        )
         self.propostas_col = db["propostas"] if "propostas" in nomes_col else None
 
     def listar_colaboradores_ativos(self) -> list:
+        if self.colaboradores_col is None:
+            return []
+
         return list(self.colaboradores_col.find({"ativo": True}))
 
     def buscar_lojas_painel(self, filtro_lojas: dict) -> list:
@@ -28,7 +34,7 @@ class PainelRepository:
             "localizacao": 1,
             "historico_share": 1,
             "estatisticas": 1,
-            "cluster_id": 1
+            "cluster_id": 1,
         }
         return list(self.lojas_col.find(filtro_lojas, projecao))
 
@@ -43,6 +49,6 @@ class PainelRepository:
             return []
         pipeline = [
             {"$match": filtro_hierarquia},
-            {"$group": {"_id": "$status", "total": {"$sum": 1}}}
+            {"$group": {"_id": "$status", "total": {"$sum": 1}}},
         ]
         return list(self.propostas_col.aggregate(pipeline))
