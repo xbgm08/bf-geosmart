@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from sklearn.cluster import KMeans
+from k_means_constrained import KMeansConstrained
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 from pymongo import MongoClient, UpdateOne
@@ -48,14 +49,14 @@ def carregar_dados_cosmos(db):
     return df_modelo, k_gefins
 
 def preparar_variaveis(df_modelo):
-    print("2. Preparando variáveis (Jittering e StandardScaler)...")
+    print("2. Preparando variáveis (Jittering e StandardScaler apenas para Lat/Lon)...")
     rng = np.random.default_rng(42)
 
     df_modelo["lat_ajustada"] = df_modelo["latitude"] + rng.normal(0, 0.0001, size=len(df_modelo))
     df_modelo["lon_ajustada"] = df_modelo["longitude"] + rng.normal(0, 0.0001, size=len(df_modelo))
 
     scaler = StandardScaler()
-    colunas = ["lat_ajustada", "lon_ajustada", "producao_media"]
+    colunas = ["lat_ajustada", "lon_ajustada"]
     dados_normalizados = scaler.fit_transform(df_modelo[colunas])
 
     return df_modelo, dados_normalizados
@@ -68,7 +69,8 @@ def sugerir_k_ideal(dados_normalizados, k_atual):
     melhor_score = -1.0
 
     for k in candidatos_k:
-        modelo_teste = KMeans(n_clusters=k, n_init="auto", random_state=42)
+        # modelo_teste = KMeans(n_clusters=k, n_init="auto", random_state=42)
+        modelo_teste = KMeansConstrained(n_clusters=k,size_max=(len(dados_normalizados) // k) * 1.15, n_init="auto", random_state=42)
         rotulos = modelo_teste.fit_predict(dados_normalizados)
 
         score = silhouette_score(
@@ -88,7 +90,8 @@ def sugerir_k_ideal(dados_normalizados, k_atual):
 
 def rodar_kmeans_e_salvar(df_modelo, dados_normalizados, k_atual, k_sugerido, db):
     print(f"4. Agrupando as lojas com o total atual de GEFINs (K={k_atual})...")
-    kmeans = KMeans(n_clusters=k_atual, n_init="auto", random_state=42)
+    # kmeans = KMeans(n_clusters=k_atual, n_init="auto", random_state=42)
+    kmeans = KMeansConstrained(n_clusters=k_atual,size_max=(len(dados_normalizados) // k_atual) * 1.15, n_init="auto", random_state=42)
     df_modelo["cluster_id"] = kmeans.fit_predict(dados_normalizados)
 
     print("5. Salvando o cluster_id no Cosmos DB e no Data Lake...")
