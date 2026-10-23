@@ -9,7 +9,6 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from dotenv import load_dotenv
-from pymongo import MongoClient
 from services.datalake_service import datalake
 
 SEED_PADRAO = 20260926
@@ -17,18 +16,51 @@ OUTPUT_PADRAO = "saida_json"
 INICIO_PADRAO = "2025-01"
 FUSO_BRASIL = timezone(timedelta(hours=-3))
 
-CIDADES = [
-    ("SP", "São Paulo", -46.6333, -23.5505),
-    ("SP", "Campinas", -47.0608, -22.9099),
-    ("RJ", "Rio de Janeiro", -43.1729, -22.9068),
-    ("MG", "Belo Horizonte", -43.9378, -19.9208),
-    ("PR", "Curitiba", -49.2643, -25.4296),
-    ("RS", "Porto Alegre", -51.2177, -30.0346),
-    ("DF", "Brasília", -47.8825, -15.7942),
-    ("BA", "Salvador", -38.5014, -12.9777),
-    ("PE", "Recife", -34.8770, -8.0476),
-    ("GO", "Goiânia", -49.2532, -16.6869),
+# Coordenadas das capitais das 27 UFs (Município, Longitude, Latitude)
+CAPITAIS_UF = {
+    "SP": ("São Paulo", -46.6333, -23.5505),
+    "RJ": ("Rio de Janeiro", -43.1729, -22.9068),
+    "ES": ("Vitória", -40.3128, -20.3155),
+    "MG": ("Belo Horizonte", -43.9378, -19.9208),
+    "PR": ("Curitiba", -49.2643, -25.4296),
+    "SC": ("Florianópolis", -48.5480, -27.5954),
+    "RS": ("Porto Alegre", -51.2177, -30.0346),
+    "DF": ("Brasília", -47.8825, -15.7942),
+    "GO": ("Goiânia", -49.2532, -16.6869),
+    "MT": ("Cuiabá", -56.0979, -15.6014),
+    "MS": ("Campo Grande", -54.6201, -20.4697),
+    "BA": ("Salvador", -38.5014, -12.9777),
+    "SE": ("Aracaju", -37.0731, -10.9472),
+    "AL": ("Maceió", -35.7350, -9.6658),
+    "PE": ("Recife", -34.8770, -8.0476),
+    "PB": ("João Pessoa", -34.8641, -7.1195),
+    "RN": ("Natal", -35.2094, -5.7945),
+    "CE": ("Fortaleza", -38.5267, -3.7319),
+    "PI": ("Teresina", -42.8016, -5.0920),
+    "MA": ("São Luís", -44.3068, -2.5307),
+    "PA": ("Belém", -48.4902, -1.4558),
+    "AM": ("Manaus", -60.0217, -3.1190),
+    "TO": ("Palmas", -48.3243, -10.1844),
+    "RO": ("Porto Velho", -63.9039, -8.7619),
+    "AC": ("Rio Branco", -67.8249, -9.9754),
+    "AP": ("Macapá", -51.0694, 0.0349),
+    "RR": ("Boa Vista", -60.6758, 2.8235),
+}
+
+# 10 SUCOMs regionalizadas cobrindo todas as 27 UFs
+REGIOES_SUCOM = [
+    {"id": "PES-SUCOM-0001", "num": 1, "nome": "SUCOM 01 - São Paulo", "sede_uf": "SP", "ufs": ["SP"], "qtd_gecoms": 18},
+    {"id": "PES-SUCOM-0003", "num": 3, "nome": "SUCOM 02 - Rio de Janeiro & Espírito Santo", "sede_uf": "RJ", "ufs": ["RJ", "ES"], "qtd_gecoms": 6},
+    {"id": "PES-SUCOM-0004", "num": 4, "nome": "SUCOM 03 - Minas Gerais", "sede_uf": "MG", "ufs": ["MG"], "qtd_gecoms": 7},
+    {"id": "PES-SUCOM-0005", "num": 5, "nome": "SUCOM 04 - Paraná & Santa Catarina", "sede_uf": "PR", "ufs": ["PR", "SC"], "qtd_gecoms": 7},
+    {"id": "PES-SUCOM-0006", "num": 6, "nome": "SUCOM 05 - Rio Grande do Sul", "sede_uf": "RS", "ufs": ["RS"], "qtd_gecoms": 5},
+    {"id": "PES-SUCOM-0007", "num": 7, "nome": "SUCOM 06 - Centro-Oeste", "sede_uf": "DF", "ufs": ["DF", "GO", "MT", "MS"], "qtd_gecoms": 7},
+    {"id": "PES-SUCOM-0002", "num": 2, "nome": "SUCOM 07 - Bahia", "sede_uf": "BA", "ufs": ["BA"], "qtd_gecoms": 6},
+    {"id": "PES-SUCOM-0008", "num": 8, "nome": "SUCOM 08 - Nordeste Sul (SE/AL/PE)", "sede_uf": "PE", "ufs": ["SE", "AL", "PE"], "qtd_gecoms": 6},
+    {"id": "PES-SUCOM-0009", "num": 9, "nome": "SUCOM 09 - Nordeste Norte (PB/RN/CE/PI/MA)", "sede_uf": "RN", "ufs": ["PB", "RN", "CE", "PI", "MA"], "qtd_gecoms": 9},
+    {"id": "PES-SUCOM-0010", "num": 10, "nome": "SUCOM 10 - Norte", "sede_uf": "AM", "ufs": ["PA", "AM", "TO", "RO", "AC", "AP", "RR"], "qtd_gecoms": 9},
 ]
+
 CATEGORIAS = ["LEVE", "MOTOS", "PESADOS"]
 PESO_CATEGORIA = [0.45, 0.35, 0.20]
 MULT_VALOR_CATEGORIA = {"LEVE": 1.0, "MOTOS": 0.25, "PESADOS": 2.5}
@@ -94,56 +126,7 @@ RANK_CONHECIDO = {
     "ME": 2,
     "D": 3,
     "4": 3,
-    "MICRO": 3,
-}
-
-DISTRIBUICAO_LOJAS_POR_GEFIN = [
-    (14, 1),
-    (16, 1),
-    (17, 2),
-    (18, 2),
-    (19, 4),
-    (20, 9),
-    (21, 12),
-    (22, 9),
-    (23, 36),
-    (24, 32),
-    (25, 35),
-    (26, 33),
-    (27, 44),
-    (28, 56),
-    (29, 58),
-    (30, 40),
-    (31, 56),
-    (32, 49),
-    (33, 46),
-    (34, 45),
-    (35, 28),
-    (36, 23),
-    (37, 18),
-    (38, 13),
-    (39, 14),
-    (40, 9),
-    (41, 7),
-    (42, 3),
-    (43, 5),
-    (44, 4),
-    (45, 4),
-    (47, 1),
-    (49, 1),
-]
-
-CAMPOS_LOJA = {
-    "_id": 0,
-    "cnpj": 1,
-    "razao_social": 1,
-    "nome_fantasia": 1,
-    "matriz_filial": 1,
-    "gefin_id": 1,
-    "tier_loja": 1,
-    "porte": 1,
-    "endereco_uf": 1,
-    "endereco_municipio": 1,
+    "MICRO": 3
 }
 
 def dinheiro(valor):
@@ -221,62 +204,90 @@ def efeitos_por_valor(valores, ordem_manual=None):
 
 # Colaboradores
 def gerar_colaboradores_bf(rng):
-    """Gera a hierarquia comercial unificada (SUCOM, GECOM, GEFIN) mantendo a seed original."""
+    """
+    Gera SUCOM, GECOM e GEFIN com coordinates [lon, lat], municipio e uf coerentes com a sua região.
+    """
     documentos = []
-    for numero in range(1, 11):
-        documentos.append(
-            {
-                "_id": f"PES-SUCOM-{numero:04d}",
-                "tipo_colaborador": "SUCOM",
-                "matricula": f"SU{numero:06d}",
-                "nome": f"Superintendência Comercial {numero:02d}",
-                "email": f"sucom{numero:02d}@bfgeosmart.local",
-                "cargo": "SUCOM",
-                "ativo": True,
-            }
-        )
-    for numero in range(1, 81):
-        sucom_numero = ((numero * 7 - 1) % 10) + 1
-        documentos.append(
-            {
-                "_id": f"PES-GECOM-{numero:04d}",
+    gecom_seq = 1
+
+    # Gera 10 SUCOMs e 80 GECOMs com Lat/Long e UF
+    for reg in REGIOES_SUCOM:
+        mun_sede, lon_sede, lat_sede = CAPITAIS_UF[reg["sede_uf"]]
+        documentos.append({
+            "_id": reg["id"],
+            "tipo_colaborador": "SUCOM",
+            "matricula": f"SU{reg['num']:06d}",
+            "nome": reg["nome"],
+            "email": f"sucom{reg['num']:02d}@bfgeosmart.local",
+            "cargo": "SUCOM",
+            "base_operacional": {
+                "type": "Point",
+                "coordinates": [round(lon_sede, 6), round(lat_sede, 6)],
+                "municipio": mun_sede,
+                "uf": reg["sede_uf"],
+                "ufs_cobertura": reg["ufs"],
+            },
+            "ativo": True,
+        })
+
+        ufs_regiao = reg["ufs"]
+        for i in range(reg["qtd_gecoms"]):
+            uf_gecom = ufs_regiao[i % len(ufs_regiao)]
+            mun_g, lon_g, lat_g = CAPITAIS_UF[uf_gecom]
+            gecom_id = f"PES-GECOM-{gecom_seq:04d}"
+
+            documentos.append({
+                "_id": gecom_id,
                 "tipo_colaborador": "GECOM",
-                "matricula": f"GE{numero:06d}",
-                "nome": f"Gerência Comercial Regional {numero:03d}",
-                "email": f"gecom{numero:03d}@bfgeosmart.local",
+                "matricula": f"GE{gecom_seq:06d}",
+                "nome": f"GECOM {uf_gecom} Regional {gecom_seq:03d}",
+                "email": f"gecom{gecom_seq:03d}@bfgeosmart.local",
                 "cargo": "GECOM",
-                "hierarquia": {"sucom_responsavel_id": f"PES-SUCOM-{sucom_numero:04d}"},
-                "ativo": rng.random() > 0.03,
-            }
-        )
-    for numero in range(1, 701):
-        gecom_numero = ((numero * 13 - 1) % 80) + 1
-        sucom_numero = ((gecom_numero * 7 - 1) % 10) + 1
-        uf, municipio, longitude, latitude = CIDADES[(numero - 1) % len(CIDADES)]
-        documentos.append(
-            {
-                "_id": f"PES-GEFIN-{numero:04d}",
-                "tipo_colaborador": "GEFIN",
-                "matricula": f"GF{numero:06d}",
-                "nome": f"GEFIN {municipio} {numero:03d}",
-                "email": f"gefin{numero:04d}@bfgeosmart.local",
-                "cargo": "GEFIN",
-                "hierarquia": {
-                    "sucom_responsavel_id": f"PES-SUCOM-{sucom_numero:04d}",
-                    "gecom_responsavel_id": f"PES-GECOM-{gecom_numero:04d}",
-                },
+                "hierarquia": {"sucom_responsavel_id": reg["id"]},
                 "base_operacional": {
                     "type": "Point",
                     "coordinates": [
-                        round(longitude + rng.uniform(-0.08, 0.08), 6),
-                        round(latitude + rng.uniform(-0.08, 0.08), 6),
+                        round(lon_g + rng.uniform(-0.10, 0.10), 6),
+                        round(lat_g + rng.uniform(-0.10, 0.10), 6),
                     ],
-                    "municipio": municipio,
-                    "uf": uf,
+                    "municipio": mun_g,
+                    "uf": uf_gecom,
                 },
-                "ativo": rng.random() > 0.04,
-            }
-        )
+                "ativo": True,
+            })
+            gecom_seq += 1
+
+    # Gera 700 GEFINs estritamente dentro da mesma UF do seu GECOM pai
+    gecoms_criados = [d for d in documentos if d["tipo_colaborador"] == "GECOM"]
+    for numero in range(1, 701):
+        gecom_pai = gecoms_criados[(numero - 1) % len(gecoms_criados)]
+        uf_gf = gecom_pai["base_operacional"]["uf"]
+        mun_gf, lon_base, lat_base = CAPITAIS_UF[uf_gf]
+        sucom_pai_id = gecom_pai["hierarquia"]["sucom_responsavel_id"]
+
+        documentos.append({
+            "_id": f"PES-GEFIN-{numero:04d}",
+            "tipo_colaborador": "GEFIN",
+            "matricula": f"GF{numero:06d}",
+            "nome": f"GEFIN {mun_gf} {numero:03d} - {uf_gf}",
+            "email": f"gefin{numero:04d}@bfgeosmart.local",
+            "cargo": "GEFIN",
+            "hierarquia": {
+                "sucom_responsavel_id": sucom_pai_id,
+                "gecom_responsavel_id": gecom_pai["_id"],
+            },
+            "base_operacional": {
+                "type": "Point",
+                "coordinates": [
+                    round(lon_base + rng.uniform(-0.15, 0.15), 6),
+                    round(lat_base + rng.uniform(-0.15, 0.15), 6),
+                ],
+                "municipio": mun_gf,
+                "uf": uf_gf,
+            },
+            "ativo": rng.random() > 0.04,
+        })
+
     return documentos
 
 def indexar_gefins(colaboradores, meses, rng):
@@ -343,81 +354,85 @@ def gerar_historico_marketing_share(rng, gefin_ids, meses):
         serie_por_gefin[gefin_id] = serie
     return registros, serie_por_gefin
 
-# Leitura e Preparo de Lojas
-def carregar_lojas_cosmos():
-    uri = os.getenv("COSMOS_MONGO_URI") or os.getenv("COSMOS_MONGO_CONNECTION_STRING")
-    if not uri:
-        raise RuntimeError(
-            "Defina COSMOS_MONGO_URI no .env para ler as lojas do Cosmos DB."
-        )
-    banco = os.getenv("COSMOS_DB_NAME", "bf_geosmart")
-    colecao = os.getenv("COSMOS_COLECAO_LOJAS", "lojas")
-    cliente = MongoClient(uri, serverSelectionTimeoutMS=20000)
-    try:
-        return list(cliente[banco][colecao].find({}, CAMPOS_LOJA))
-    except Exception as erro:
-        raise SystemExit(
-            f"Erro ao ler a coleção '{colecao}' do Cosmos ({type(erro).__name__}). "
-            "Verifique o .env ou use --local-only."
-        )
-    finally:
-        cliente.close()
+def carregar_e_vincular_lojas_silver(colaboradores, serie_por_gefin, meses, rng):
+    """
+    Lê 'api_receita/lojas_silver.json', agrupa as lojas por UF e ordena por
+    Município + Bairro para que cada GEFIN receba um bloco geograficamente concentrado
+    de lojas da sua mesma UF (evitando espalhamento entre cidades distantes).
+    """
+    lojas_silver = datalake.download_json("silver", "api_receita/lojas_silver.json")
 
+    docs_gefin_por_uf = defaultdict(list)
+    todos_docs_gefin = []
+    for doc in colaboradores:
+        if doc["tipo_colaborador"] == "GEFIN" and doc.get("ativo", True):
+            uf_doc = doc["base_operacional"]["uf"]
+            docs_gefin_por_uf[uf_doc].append(doc)
+            todos_docs_gefin.append(doc)
 
-def carregar_lojas_arquivo(caminho):
-    return json.loads(Path(caminho).read_text(encoding="utf-8"))
+    for doc in colaboradores:
+        if doc["tipo_colaborador"] == "GEFIN":
+            uf_doc = doc["base_operacional"]["uf"]
+            if not docs_gefin_por_uf[uf_doc]:
+                docs_gefin_por_uf[uf_doc].append(doc)
 
+    # Agrupa lojas únicas por UF
+    lojas_por_uf = defaultdict(list)
+    cnpjs_vistos = set()
+    for loja in lojas_silver:
+        cnpj = loja.get("cnpj")
+        if not cnpj or cnpj in cnpjs_vistos:
+            continue
+        cnpjs_vistos.add(cnpj)
+        uf_loja = str(loja.get("endereco_uf", "SP")).strip().upper()
+        lojas_por_uf[uf_loja].append(loja)
 
-def gerar_lojas_simuladas(rng, colaboradores):
-    gefins = [d for d in colaboradores if d["tipo_colaborador"] == "GEFIN"]
-    contagens = [n for n, qtd in DISTRIBUICAO_LOJAS_POR_GEFIN for _ in range(qtd)]
-    rng.shuffle(contagens)
-    lojas, usados = [], set()
-    for i, doc in enumerate(gefins):
-        lon, lat = doc["base_operacional"]["coordinates"]
-        for _ in range(contagens[i % len(contagens)]):
-            while True:
-                cnpj = "".join(rng.choice("0123456789") for _ in range(14))
-                if cnpj not in usados:
-                    usados.add(cnpj)
-                    break
-            numero = len(lojas) + 1
-            lojas.append(
-                {
-                    "_id": cnpj,
-                    "cnpj": cnpj,
-                    "razao_social": f"LOJA SIMULADA {numero:05d} LTDA",
-                    "nome_fantasia": f"Loja Simulada {numero:05d}",
-                    "matriz_filial": rng.choices(["MATRIZ", "FILIAL"], [0.7, 0.3])[0],
-                    "porte": rng.choices(
-                        ["DEMAIS", "EMPRESA DE PEQUENO PORTE", "MICRO EMPRESA"],
-                        [0.15, 0.25, 0.60],
-                    )[0],
-                    "gefin_id": doc["_id"],
-                    "tier_loja": rng.choices(
-                        ["OURO", "PRATA", "BRONZE"], [0.15, 0.35, 0.50]
-                    )[0],
-                    "endereco_uf": doc["base_operacional"]["uf"],
-                    "endereco_municipio": doc["base_operacional"]["municipio"],
-                    "localizacao": {
-                        "type": "Point",
-                        "coordinates": [
-                            round(lon + rng.uniform(-0.35, 0.35), 6),
-                            round(lat + rng.uniform(-0.30, 0.30), 6),
-                        ],
-                    },
-                    "geocodificado_real": False,
-                    "origem": "simulada",
-                }
-            )
-    return lojas
+    lojas_enriquecidas = []
+    ultimos_12_meses = meses[-12:] if len(meses) >= 12 else meses
+
+    for uf_loja, lista_lojas_uf in lojas_por_uf.items():
+        # Ordena por município e bairro para manter lojas vizinhas no mesmo GEFIN
+        lista_lojas_uf.sort(key=lambda x: (str(x.get("endereco_municipio", "")), str(x.get("endereco_bairro", ""))))
+        gefins_uf = docs_gefin_por_uf.get(uf_loja) or todos_docs_gefin
+        qtd_gefins = len(gefins_uf)
+        total_uf = len(lista_lojas_uf)
+
+        for idx, loja in enumerate(lista_lojas_uf):
+            # Fatia contígua: lojas da mesma cidade ficam no mesmo GEFIN
+            idx_gefin = min(qtd_gefins - 1, int(idx * qtd_gefins / max(1, total_uf)))
+            doc_gefin = gefins_uf[idx_gefin]
+            gefin_escolhido = doc_gefin["_id"]
+
+            # Atualiza o município do GEFIN com o município real das lojas que ele atende
+            if loja.get("endereco_municipio"):
+                doc_gefin["base_operacional"]["municipio"] = loja["endereco_municipio"]
+                num_str = gefin_escolhido.split("-")[-1]
+                doc_gefin["nome"] = f"GEFIN {loja['endereco_municipio']} {num_str} - {uf_loja}"
+
+            porte_norm = _norm(loja.get("porte", ""))
+            if "DEMAIS" in porte_norm or "GRANDE" in porte_norm:
+                tier = rng.choices(["OURO", "PRATA", "BRONZE"], [0.45, 0.40, 0.15])[0]
+            elif "PEQUENO" in porte_norm or "EPP" in porte_norm:
+                tier = rng.choices(["OURO", "PRATA", "BRONZE"], [0.20, 0.50, 0.30])[0]
+            else:
+                tier = rng.choices(["OURO", "PRATA", "BRONZE"], [0.10, 0.30, 0.60])[0]
+
+            serie_base = serie_por_gefin.get(gefin_escolhido, [0.65] * len(meses))
+            hist_loja = []
+            for idx_m, m_ref in enumerate(ultimos_12_meses):
+                sh_base = serie_base[idx_m % len(serie_base)]
+                sh_loja = round(clip(sh_base + rng.uniform(-0.05, 0.05), 0.05, 0.98), 4)
+                hist_loja.append({"mes_referencia": m_ref, "share_estimado": sh_loja})
+
+            loja["gefin_id"] = gefin_escolhido
+            loja["tier_loja"] = tier
+            loja["historico_share"] = hist_loja
+            lojas_enriquecidas.append(loja)
+
+    print(f" -> {len(lojas_enriquecidas)} lojas únicas carteirizadas por UF e Município!")
+    return lojas_enriquecidas
 
 def preparar_lojas(lojas_brutas, gefin_info, rng, args):
-    """
-    Filtra as lojas válidas do banco de dados e calcula a sua intensidade de vendas.
-    Inclui um mecanismo de desduplicação de CNPJs (utilizando um Set) para 
-    evitar problemas de chaves duplicadas no Cosmos DB durante a geração de metas.
-    """
     validas, ignoradas, cnpjs_vistos = [], 0, set()
     for loja in lojas_brutas:
         cnpj = loja.get("cnpj")
@@ -426,64 +441,36 @@ def preparar_lojas(lojas_brutas, gefin_info, rng, args):
             validas.append(loja)
         else:
             ignoradas += 1
-    ef_tier, ordem_tier = efeitos_por_valor(
-        [l.get("tier_loja") for l in validas], args.tier_ordem
-    )
-    ef_porte, ordem_porte = efeitos_por_valor(
-        [l.get("porte") for l in validas], args.porte_ordem
-    )
-    if not validas:
-        raise SystemExit(
-            "Nenhuma loja válida encontrada com 'cnpj' e 'gefin_id' válidos."
-        )
-    print(
-        f" -> Lojas lidas: {len(lojas_brutas)} | Válidas: {len(validas)} | Ignoradas: {ignoradas}"
-    )
-    print(f" -> Ordem de tier (melhor -> pior): {ordem_tier}")
-    print(f" -> Ordem de porte (melhor -> pior): {ordem_porte}")
+
+    ef_tier, _ = efeitos_por_valor([l.get("tier_loja") for l in validas], args.tier_ordem)
+    ef_porte, _ = efeitos_por_valor([l.get("porte") for l in validas], args.porte_ordem)
+
+    print(f" -> Lojas lidas: {len(lojas_brutas)} | Válidas: {len(validas)} | Ignoradas: {ignoradas}")
 
     ativas = []
     for loja in validas:
         e_tier = ef_tier.get(_norm(loja.get("tier_loja", "")), 0.0)
         e_porte = ef_porte.get(_norm(loja.get("porte", "")), 0.0)
-        p_ativa = min(
-            0.95, max(0.02, args.fracao_ativa * (1 + 0.10 * e_tier + 0.05 * e_porte))
-        )
+        p_ativa = min(0.95, max(0.02, args.fracao_ativa * (1 + 0.10 * e_tier + 0.05 * e_porte)))
         if rng.random() >= p_ativa:
             continue
-        intensidade = (
-            min(rng.lognormvariate(0.0, 0.8), 7.0)
-            * (1 + 0.15 * e_tier)
-            * (1 + 0.10 * e_porte)
-        )
-        ativas.append(
-            {
-                "cnpj": loja["cnpj"],
-                "razao_social": loja.get("razao_social", ""),
-                "gefin": loja["gefin_id"],
-                "uf": loja.get("endereco_uf") or gefin_info[loja["gefin_id"]]["uf"],
-                "e_tier": e_tier,
-                "e_porte": e_porte,
-                "intens": max(intensidade, 0.02),
-                "cresc": rng.gauss(0.0, 0.012),
-                "qual": rng.gauss(0.0, 0.02),
-            }
-        )
+        intensidade = min(rng.lognormvariate(0.0, 0.8), 7.0) * (1 + 0.15 * e_tier) * (1 + 0.10 * e_porte)
+        ativas.append({
+            "cnpj": loja["cnpj"],
+            "razao_social": loja.get("razao_social", ""),
+            "gefin": loja["gefin_id"],
+            "uf": loja.get("endereco_uf") or gefin_info[loja["gefin_id"]]["uf"],
+            "e_tier": e_tier,
+            "e_porte": e_porte,
+            "intens": max(intensidade, 0.02),
+            "cresc": rng.gauss(0.0, 0.012),
+            "qual": rng.gauss(0.0, 0.02),
+        })
     media = sum(l["intens"] for l in ativas) / max(1, len(ativas))
     for loja in ativas:
         loja["intens"] *= args.media_prop_mes / media
-    resumo = {
-        "lojas_lidas": len(lojas_brutas),
-        "lojas_validas": len(validas),
-        "lojas_ignoradas": ignoradas,
-        "lojas_ativas": len(ativas),
-        "ordem_tier": ordem_tier,
-        "ordem_porte": ordem_porte,
-    }
-    return ativas, resumo
+    return ativas
 
-
-# Propostas e Metas
 def gerar_uma_proposta(rng, loja, info, hab, ano, mes, ultimo_dia, agora):
     categoria = sortear(rng, CATEGORIAS, PESO_CATEGORIA)
     novo = rng.random() < 0.5
@@ -524,29 +511,13 @@ def gerar_uma_proposta(rng, loja, info, hab, ano, mes, ultimo_dia, agora):
 
     paga, status, dt_form, dt_pag, inad = False, "NAO_CONVERTIDA", None, None, None
     if convertida:
-        inad = clip(
-            3.4
-            + 2.5 * (ltv - 0.675)
-            + 0.12 * prazo_idx
-            + (0.15 if not novo else 0.0)
-            + AJUSTE_INAD_CATEGORIA[categoria]
-            - 0.12 * loja["e_tier"]
-            - 0.05 * loja["e_porte"]
-            + hab["inad"]
-            + rng.gauss(0.0, 0.7),
-            0.2,
-            12.0,
-        )
-        inad = round(inad, 2)
-        dt_form = min(
-            dt_prop
-            + timedelta(
-                days=rng.randint(0, 7),
-                hours=rng.randint(0, 5),
-                minutes=rng.randint(0, 59),
-            ),
-            agora,
-        )
+        inad = round(clip(
+            3.4 + 2.5 * (ltv - 0.675) + 0.12 * prazo_idx + (0.15 if not novo else 0.0)
+            + AJUSTE_INAD_CATEGORIA[categoria] - 0.12 * loja["e_tier"] - 0.05 * loja["e_porte"]
+            + hab["inad"] + rng.gauss(0.0, 0.7),
+            0.2, 12.0,
+        ), 2)
+        dt_form = min(dt_prop + timedelta(days=rng.randint(0, 7), hours=rng.randint(0, 5), minutes=rng.randint(0, 59)), agora)
         status = "ATIVO"
         p_pago = clip(0.92 - 0.02 * prazo_idx - 0.015 * (inad - 4.0), 0.60, 0.98)
         if rng.random() < p_pago:
@@ -572,12 +543,12 @@ def gerar_uma_proposta(rng, loja, info, hab, ano, mes, ultimo_dia, agora):
             "categoria": categoria,
             "tipo": tipo_veiculo,
             "ano_fabricacao": ano_fab,
-            "valor_bem": valor_bem,
+            "valor_bem": valor_bem
         },
         "condicoes_solicitadas": {
             "valor_entrada": entrada,
             "valor_financiado": financiado,
-            "prazo_meses": prazo,
+            "prazo_meses": prazo
         },
         "contrato": {
             "numero_contrato": None,
@@ -591,7 +562,7 @@ def gerar_uma_proposta(rng, loja, info, hab, ano, mes, ultimo_dia, agora):
         "indicadores": {
             "proposta_convertida": convertida,
             "contrato_pago": paga,
-            "inadimplencia_percentual": inad,
+            "inadimplencia_percentual": inad
         },
     }
 
@@ -599,15 +570,16 @@ def gerar_propostas_e_metas(rng, lojas, gefin_info, share_series, meses, agora):
     """
     Motor central de geração sintética.
     Modelo baseado no histórico da loja, introduzindo choques macroeconómicos 
-    por UF e sazonalidade para as disciplinas de Analytics.
+    por UF e sazonalidade
     Gera o facto de 'Metas' e as 'Propostas' já atreladas ao CNPJ da loja.
     """
     choque_nac = [math.exp(rng.gauss(0.0, 0.025)) for _ in meses]
     ufs = sorted({l["uf"] for l in lojas})
     choque_uf = {uf: [math.exp(rng.gauss(0.0, 0.035)) for _ in meses] for uf in ufs}
-    habilidade = defaultdict(lambda: {"conv": 0.0, "inad": 0.0})
-    for gid in gefin_info:
-        habilidade[gid] = {"conv": rng.gauss(0.0, 0.02), "inad": rng.gauss(0.0, 0.20)}
+    habilidade = {gid: {
+        "conv": rng.gauss(0.0, 0.02),
+        "inad": rng.gauss(0.0, 0.20)
+    } for gid in gefin_info}
 
     propostas, metas = [], []
     mes_atual = agora.strftime("%Y-%m")
@@ -665,34 +637,12 @@ def gerar_propostas_e_metas(rng, lojas, gefin_info, share_series, meses, agora):
     return propostas, metas
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Gerador Sintético BF GeoSmart v2 (Camada Silver)"
-    )
-    parser.add_argument(
-        "--local-only",
-        action="store_true",
-        help="Salva apenas em disco local sem subir para o Data Lake",
-    )
-    parser.add_argument(
-        "--salvar-local",
-        action="store_true",
-        help="Além de subir ao Data Lake, salva cópia em saida_json/",
-    )
-    parser.add_argument(
-        "--lojas-fonte",
-        choices=["auto", "cosmos", "arquivo", "simulado"],
-        default="auto",
-    )
-    parser.add_argument(
-        "--lojas-arquivo", help="Caminho de arquivo JSON local de lojas"
-    )
-    parser.add_argument(
-        "--inicio", default=INICIO_PADRAO, help="Primeiro mês AAAA-MM (padrão: 2025-01)"
-    )
-    parser.add_argument(
-        "--ate", default=None, help="Último mês AAAA-MM (padrão: mês atual)"
-    )
-    parser.add_argument("--hoje", default=None, help="Data de referência AAAA-MM-DD")
+    parser = argparse.ArgumentParser(description="Gerador Sintético Regionalizado BF GeoSmart v2")
+    parser.add_argument("--local-only", action="store_true")
+    parser.add_argument("--salvar-local", action="store_true")
+    parser.add_argument("--inicio", default=INICIO_PADRAO)
+    parser.add_argument("--ate", default=None)
+    parser.add_argument("--hoje", default=None)
     parser.add_argument("--fracao-ativa", type=float, default=0.60)
     parser.add_argument("--media-prop-mes", type=float, default=1.0)
     parser.add_argument("--tier-ordem", default=None)
@@ -703,11 +653,9 @@ def main():
     args.tier_ordem = args.tier_ordem.split(",") if args.tier_ordem else None
     args.porte_ordem = args.porte_ordem.split(",") if args.porte_ordem else None
 
-    print("1. Inicializando gerador de dados sintéticos (v2)...")
+    print("1. Inicializando gerador sintético regionalizado...")
     load_dotenv(override=True)
-    semente = (
-        args.seed if args.seed is not None else int(os.getenv("SEED", str(SEED_PADRAO)))
-    )
+    semente = args.seed if args.seed is not None else int(os.getenv("SEED", str(SEED_PADRAO)))
     agora = (
         datetime.strptime(args.hoje, "%Y-%m-%d").replace(hour=23, minute=59)
         if args.hoje
@@ -717,7 +665,7 @@ def main():
     meses = lista_meses(args.inicio, ate)
     output_dir = Path(os.getenv("OUTPUT_DIR", OUTPUT_PADRAO))
 
-    print("2. Gerando Colaboradores e Histórico de Marketing Share...")
+    print("2. Gerando Colaboradores (SUCOM, GECOM e GEFIN com Lat/Long e UF)...")
     colaboradores = gerar_colaboradores_bf(random.Random(semente))
     info = indexar_gefins(colaboradores, meses, random.Random(semente + 11))
     gefin_ids = sorted(info)
@@ -725,43 +673,21 @@ def main():
         random.Random(semente + 21), gefin_ids, meses
     )
 
-    # Resolução automática da fonte de lojas
-    fonte = args.lojas_fonte
-    if fonte == "auto":
-        tem_cosmos = bool(
-            os.getenv("COSMOS_MONGO_URI") or os.getenv("COSMOS_MONGO_CONNECTION_STRING")
-        )
-        if args.lojas_arquivo:
-            fonte = "arquivo"
-        elif args.local_only or not tem_cosmos:
-            fonte = "simulado"
-        else:
-            fonte = "cosmos"
-    args.lojas_fonte = fonte
-
-    print(f"3. Carregando base de lojas (Fonte: {fonte})...")
-    if fonte == "cosmos":
-        lojas_brutas = carregar_lojas_cosmos()
-    elif fonte == "arquivo":
-        if not args.lojas_arquivo:
-            raise SystemExit("Informe --lojas-arquivo com o JSON das lojas.")
-        lojas_brutas = carregar_lojas_arquivo(args.lojas_arquivo)
-    else:
-        lojas_brutas = gerar_lojas_simuladas(random.Random(semente + 51), colaboradores)
-        if args.local_only or args.salvar_local:
-            salvar_json_local(output_dir / "lojas_simuladas.json", lojas_brutas)
-
-    lojas, resumo_lojas = preparar_lojas(
-        lojas_brutas, info, random.Random(semente + 31), args
+    print("3. Carregando lojas da camada Silver e vinculando por UF e Município...")
+    lojas_enriquecidas = carregar_e_vincular_lojas_silver(
+        colaboradores, share_series, meses, random.Random(semente + 25)
+    )
+    lojas_ativas = preparar_lojas(
+        lojas_enriquecidas, info, random.Random(semente + 31), args
     )
 
     print(f"4. Gerando Propostas e Metas ({meses[0]} até {meses[-1]})...")
     propostas, metas = gerar_propostas_e_metas(
-        random.Random(semente + 41), lojas, info, share_series, meses, agora
+        random.Random(semente + 41), lojas_ativas, info, share_series, meses, agora
     )
 
-    # Mapeamento oficial para a Camada Silver do repositório bf-geosmart
     arquivos_silver = {
+        "dados_sinteticos/lojas_enriquecidas.json": lojas_enriquecidas,
         "dados_sinteticos/colaboradores.json": colaboradores,
         "dados_sinteticos/propostas.json": propostas,
         "dados_sinteticos/historico_share.json": share_registros,
@@ -769,25 +695,19 @@ def main():
     }
 
     if args.local_only or args.salvar_local:
-        print(f"\nSalvando cópias locais na pasta '{output_dir}'...")
         for caminho_blob, dados in arquivos_silver.items():
-            nome_arquivo = Path(caminho_blob).name
-            caminho_local = output_dir / nome_arquivo
+            caminho_local = output_dir / Path(caminho_blob).name
             salvar_json_local(caminho_local, dados)
-            print(f" -> Arquivo local salvo: {caminho_local} ({len(dados)} registros)")
 
     if args.local_only:
-        print("\nModo --local-only concluído com sucesso!")
         return
 
     print("\n5. Enviando dados para a camada Silver no Azure Data Lake...")
     for caminho_blob, dados in arquivos_silver.items():
         datalake.upload_json("silver", caminho_blob, dados)
-        print(
-            f" -> silver/{caminho_blob} enviado com sucesso! ({len(dados)} registros)"
-        )
+        print(f" -> silver/{caminho_blob} enviado ({len(dados)} registros)")
 
-    print("\nPipeline de dados sintéticos (v2) concluído com sucesso!")
+    print("\nPipeline 03 concluída com sucesso!")
 
 if __name__ == "__main__":
     main()
