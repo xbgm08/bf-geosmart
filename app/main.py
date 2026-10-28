@@ -6,12 +6,12 @@ from app.routers.painel_router import router as painel_router
 app = FastAPI(
     title="API GeoSmart - Back-end",
     description="API arquitetada em camadas (Router-Service-Repository) para integração com Cosmos DB.",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], 
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -19,3 +19,7 @@ app.add_middleware(
 
 app.include_router(loja_router)
 app.include_router(painel_router)
+
+@app.get("/", tags=["Status"])
+def root():
+    return {"status": "online", "service": "BF GeoSmart API"}
