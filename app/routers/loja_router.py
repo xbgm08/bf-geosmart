@@ -1,6 +1,6 @@
 import os
-import subprocess
-from fastapi import APIRouter, Query, status, HTTPException
+from typing import Optional
+from fastapi import APIRouter, Query, status
 from pymongo import MongoClient
 from dotenv import load_dotenv
 
@@ -18,7 +18,7 @@ if not uri_mongo:
     raise ValueError("A variável COSMOS_MONGO_URI não foi encontrada no .env")
 
 client = MongoClient(uri_mongo)
-lojas_col = client[db_name]['lojas']
+lojas_col = client[db_name]["lojas"]
 
 # Instanciação das camadas
 repository = LojaRepository(lojas_col)
@@ -30,14 +30,16 @@ router = APIRouter(prefix="/lojas", tags=["Lojas"])
 async def create_loja(loja: LojaCreate):
     return service.registrar_loja(loja)
 
-@router.get("/", summary="Listar lojas (com filtros e paginação)")
+@router.get("/", summary="Listar lojas (com filtros, busca e paginação)")
 async def get_lojas(
-    uf: str = Query(None, description="Filtrar por UF"),
-    tier: str = Query(None, description="Filtrar por Tier (OURO, PRATA, BRONZE)"),
+    uf: Optional[str] = Query(None, description="Filtrar por UF"),
+    tier: Optional[str] = Query(None, description="Filtrar por Tier (OURO, PRATA, BRONZE)"),
+    gefin_id: Optional[str] = Query(None, description="Filtrar por ID do GEFIN"),
+    busca: Optional[str] = Query(None, description="Buscar por CNPJ, Razão Social, Nome Fantasia ou Município"),
     skip: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100)
+    limit: int = Query(20, ge=1, le=100),
 ):
-    return service.consultar_lojas(uf, tier, skip, limit)
+    return service.consultar_lojas(uf, tier, gefin_id, busca, skip, limit)
 
 @router.get("/{cnpj}", summary="Buscar detalhes de uma loja")
 async def get_loja_by_cnpj(cnpj: str):

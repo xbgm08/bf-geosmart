@@ -5,12 +5,18 @@ class LojaRepository:
         self.collection = collection
 
     def criar(self, loja_data: dict) -> str:
+        if "cnpj" in loja_data and "_id" not in loja_data:
+            loja_data["_id"] = loja_data["cnpj"]
+            
         resultado = self.collection.insert_one(loja_data)
         return str(resultado.inserted_id)
 
     def listar_com_filtros(self, query: dict, skip: int, limit: int) -> list:
         cursor = self.collection.find(query, {"_id": 0}).skip(skip).limit(limit)
         return list(cursor)
+
+    def contar_com_filtros(self, query: dict) -> int:
+        return self.collection.count_documents(query)
 
     def buscar_por_cnpj(self, cnpj: str) -> dict:
         return self.collection.find_one({"cnpj": cnpj}, {"_id": 0})
