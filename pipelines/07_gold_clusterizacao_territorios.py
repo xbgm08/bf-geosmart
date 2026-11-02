@@ -1,14 +1,14 @@
 import os
-from pathlib import Path
 import numpy as np
 import pandas as pd
 from dotenv import load_dotenv
 from sklearn.cluster import KMeans
-from k_means_constrained import KMeansConstrained
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 from pymongo import MongoClient, UpdateOne
 from services.datalake_service import datalake
+
+FATOR_TETO = 1.15
 
 def conectar_banco():
     uri = os.getenv("COSMOS_MONGO_URI") or os.getenv("COSMOS_MONGO_CONNECTION_STRING")
@@ -20,22 +20,22 @@ def conectar_banco():
 
 def carregar_dados_cosmos(db):
     print("1. Lendo Lojas e GEFINs diretamente do Cosmos DB...")
-    
+
     # Conta quantos GEFINs estão ativos na coleção colaboradores
     k_gefins = db["colaboradores"].count_documents({"tipo_colaborador": "GEFIN", "ativo": True})
     print(f" -> Quantidade atual de GEFINs ativos: {k_gefins}")
 
     # Traz apenas as lojas que têm coordenadas reais
     lojas_cursor = db["lojas"].find({"geocodificado_real": True, "localizacao": {"$exists": True}})
-    
+
     lojas_lista = []
     for loja in lojas_cursor:
         lon, lat = loja["localizacao"]["coordinates"]
-        # Puxa a estatística que a Pipeline 06 acabou de gravar (ou assume 0.0 se não tiver)
         prod_media = loja.get("estatisticas", {}).get("producao_media", 0.0)
-        
+
         lojas_lista.append({
             "cnpj_loja": str(loja["cnpj"]),
+            "uf": str(loja.get("endereco_uf", "SP")).strip().upper(),
             "latitude": float(lat),
             "longitude": float(lon),
             "gefin_atual": loja.get("gefin_id"),
@@ -44,7 +44,7 @@ def carregar_dados_cosmos(db):
 
     # Remove CNPJs duplicados caso existam anomalias na base
     df_modelo = pd.DataFrame(lojas_lista).drop_duplicates(subset=["cnpj_loja"])
-    
+
     print(f" -> Total de lojas preparadas para o modelo: {len(df_modelo)}")
     return df_modelo, k_gefins
 
@@ -69,8 +69,7 @@ def sugerir_k_ideal(dados_normalizados, k_atual):
     melhor_score = -1.0
 
     for k in candidatos_k:
-        # modelo_teste = KMeans(n_clusters=k, n_init="auto", random_state=42)
-        modelo_teste = KMeansConstrained(n_clusters=k,size_max=(len(dados_normalizados) // k) * 1.15, n_init="auto", random_state=42)
+        modelo_teste = KMeans(n_clusters=k, n_init="auto", random_state=42)
         rotulos = modelo_teste.fit_predict(dados_normalizados)
 
         score = silhouette_score(
@@ -88,41 +87,156 @@ def sugerir_k_ideal(dados_normalizados, k_atual):
     print(f" -> Número sugerido pelo modelo: {melhor_k} GEFINs (Quadro atual: {k_atual})")
     return melhor_k
 
+
+def agrupar_com_limite(coordenadas, quantidade_grupos, fator_teto=FATOR_TETO):
+    """
+    Usa o KMeans do scikit-learn e garante que nenhum cluster ultrapasse o teto:
+    teto = (total_pontos / quantidade_grupos) * peso_teto
+    """
+    total_pontos = len(coordenadas)
+    if quantidade_grupos <= 1 or total_pontos <= 1:
+        return [0] * total_pontos, coordenadas.mean(axis=0, keepdims=True), total_pontos
+
+    if quantidade_grupos > total_pontos:
+        quantidade_grupos = total_pontos
+
+    # 1. Calcula o limite máximo de lojas por cluster
+    teto_por_grupo = int(np.ceil((total_pontos / quantidade_grupos) * fator_teto))
+
+    # 2. Pega pontos iniciais bem distribuídos na lista de lojas para iniciar o KMeans
+    posicoes_iniciais = np.linspace(0, total_pontos - 1, quantidade_grupos, dtype=int)
+    centroides_iniciais = coordenadas[posicoes_iniciais]
+
+    # 3. Treina o KMeans e pega a tabela de distâncias de cada loja para cada cluster
+    modelo_kmeans = KMeans(
+        n_clusters=quantidade_grupos,
+        init=centroides_iniciais,
+        n_init=1,
+        max_iter=10,
+        random_state=42
+    )
+    distancias = modelo_kmeans.fit_transform(coordenadas)
+    centroides = modelo_kmeans.cluster_centers_
+
+    # 4. Coloca cada loja no cluster mais próximo que ainda tenha vaga disponível
+    clusters_finais = [0] * total_pontos
+    vagas_ocupadas = [0] * quantidade_grupos
+
+    # Ordena para alocar primeiro as lojas que estão mais próximas do seu centro
+    menor_distancia_por_loja = distancias.min(axis=1)
+    ordem_lojas = np.argsort(menor_distancia_por_loja)
+
+    for indice_loja in ordem_lojas:
+        clusters_mais_proximos = np.argsort(distancias[indice_loja])
+
+        for id_cluster in clusters_mais_proximos:
+            if vagas_ocupadas[id_cluster] < teto_por_grupo:
+                clusters_finais[indice_loja] = int(id_cluster)
+                vagas_ocupadas[id_cluster] += 1
+                break
+
+    return clusters_finais, centroides, teto_por_grupo
+
+
 def rodar_kmeans_e_salvar(df_modelo, dados_normalizados, k_atual, k_sugerido, db):
-    print(f"4. Agrupando as lojas com o total atual de GEFINs (K={k_atual})...")
-    # kmeans = KMeans(n_clusters=k_atual, n_init="auto", random_state=42)
-    kmeans = KMeansConstrained(n_clusters=k_atual,size_max=(len(dados_normalizados) // k_atual) * 1.15, n_init="auto", random_state=42)
-    df_modelo["cluster_id"] = kmeans.fit_predict(dados_normalizados)
+    print(f"4. Agrupando as lojas por UF com limite de {FATOR_TETO}x (Total GEFINs K={k_atual})...")
+
+    # Separa os GEFINs e GECOMs ativos por UF usando dicionários simples
+    colaboradores = list(db["colaboradores"].find({"ativo": True}))
+    gefins_por_uf = {}
+    gecoms_por_uf = {}
+
+    for colab in colaboradores:
+        uf = colab.get("base_operacional", {}).get("uf", "SP")
+        tipo = colab.get("tipo_colaborador")
+
+        if tipo == "GEFIN":
+            if uf not in gefins_por_uf:
+                gefins_por_uf[uf] = []
+            gefins_por_uf[uf].append(colab)
+        elif tipo == "GECOM":
+            if uf not in gecoms_por_uf:
+                gecoms_por_uf[uf] = []
+            gecoms_por_uf[uf].append(colab)
+
+    operacoes_lojas = []
+    operacoes_colab = []
+    docs_backup = []
+    cluster_offset = 0
+
+    for uf, df_uf in df_modelo.groupby("uf"):
+        # Ordena as lojas da UF por latitude e longitude
+        df_uf = df_uf.sort_values(["lat_ajustada", "lon_ajustada"]).copy()
+
+        lista_gefins = gefins_por_uf.get(uf, [])
+        lista_gecoms = gecoms_por_uf.get(uf, [])
+
+        total_lojas_uf = len(df_uf)
+        qtd_gefins_uf = max(1, len(lista_gefins))
+        qtd_gecoms_uf = max(1, len(lista_gecoms))
+
+        coordenadas_uf = df_uf[["lat_ajustada", "lon_ajustada"]].values
+
+        # Passo A: Agrupa as Lojas nos GEFINs da UF respeitando o teto de 1.15x
+        rotulos_lojas, centroides_gefins, teto_lojas = agrupar_com_limite(
+            coordenadas_uf, qtd_gefins_uf, fator_teto=FATOR_TETO
+        )
+        df_uf["cluster_local"] = rotulos_lojas
+
+        # Passo B: Agrupa os GEFINs nos GECOMs da UF para ficarem na mesma região
+        rotulos_gecom, centroides_gecoms, teto_gecoms = agrupar_com_limite(
+            centroides_gefins, qtd_gecoms_uf, fator_teto=FATOR_TETO
+        )
+
+        # Atualiza o GECOM de cada GEFIN para não ficarem espalhados pelo estado
+        for indice_gf in range(len(centroides_gefins)):
+            if indice_gf < len(lista_gefins) and len(lista_gecoms) > 0:
+                indice_gecom = int(rotulos_gecom[indice_gf])
+                gecom_escolhido = lista_gecoms[indice_gecom]
+
+                operacoes_colab.append(
+                    UpdateOne(
+                        {"_id": lista_gefins[indice_gf]["_id"]},
+                        {"$set": {"hierarquia.gecom_responsavel_id": str(gecom_escolhido["_id"])}}
+                    )
+                )
+
+        # Prepara a atualização de cada loja no Cosmos DB e no backup do Data Lake
+        for indice, row in df_uf.iterrows():
+            cluster_local = int(row["cluster_local"])
+            cluster_global = int(cluster_offset + cluster_local)
+
+            if cluster_local < len(lista_gefins):
+                novo_gefin = str(lista_gefins[cluster_local]["_id"])
+            else:
+                novo_gefin = row["gefin_atual"]
+
+            operacoes_lojas.append(
+                UpdateOne(
+                    {"cnpj": row["cnpj_loja"]},
+                    {"$set": {"cluster_id": cluster_global, "gefin_id": novo_gefin}}
+                )
+            )
+
+            docs_backup.append({
+                "cnpj_loja": row["cnpj_loja"],
+                "cluster_id": cluster_global,
+                "gefin_id": novo_gefin,
+                "latitude": row["latitude"],
+                "longitude": row["longitude"],
+                "producao_media": row["producao_media"]
+            })
+
+        cluster_offset += qtd_gefins_uf
+        print(f" -> UF {uf}: {total_lojas_uf} lojas em {qtd_gefins_uf} clusters (teto: {teto_lojas} lojas/GEFIN).")
 
     print("5. Salvando o cluster_id no Cosmos DB e no Data Lake...")
-    operacoes = []
-    docs_backup = []
-    
-    for _, row in df_modelo.iterrows():
-        cluster = int(row["cluster_id"])
-        
-        # 1. Prepara a atualização no Cosmos DB
-        operacoes.append(
-            UpdateOne(
-                {"cnpj": row["cnpj_loja"]},
-                {"$set": {"cluster_id": cluster}}
-            )
-        )
-        
-        # 2. Monta o documento para o backup no Data Lake
-        docs_backup.append({
-            "cnpj_loja": row["cnpj_loja"],
-            "cluster_id": cluster,
-            "latitude": row["latitude"],
-            "longitude": row["longitude"],
-            "producao_media": row["producao_media"]
-        })
-
-    # Executa as gravações no banco em blocos para não estourar os RU/s
     lote_size = 1000
-    for i in range(0, len(operacoes), lote_size):
-        db["lojas"].bulk_write(operacoes[i:i + lote_size])
-        
+    for i in range(0, len(operacoes_colab), lote_size):
+        db["colaboradores"].bulk_write(operacoes_colab[i:i + lote_size])
+    for i in range(0, len(operacoes_lojas), lote_size):
+        db["lojas"].bulk_write(operacoes_lojas[i:i + lote_size])
+
     print(" -> Cosmos DB atualizado com sucesso!")
 
     # Faz o upload do backup para a camada Gold
@@ -132,7 +246,7 @@ def rodar_kmeans_e_salvar(df_modelo, dados_normalizados, k_atual, k_sugerido, db
 def main():
     load_dotenv(override=True)
     cliente, db = conectar_banco()
-    
+
     try:
         df_modelo, k_atual = carregar_dados_cosmos(db)
         if df_modelo.empty:
@@ -141,10 +255,10 @@ def main():
 
         df_modelo, dados_normalizados = preparar_variaveis(df_modelo)
         k_sugerido = sugerir_k_ideal(dados_normalizados, k_atual)
-        
+
         rodar_kmeans_e_salvar(df_modelo, dados_normalizados, k_atual, k_sugerido, db)
         print("\nPipeline 07 executada com sucesso. Os clusters estão no banco!")
-        
+
     finally:
         cliente.close()
 
