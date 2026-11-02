@@ -110,6 +110,7 @@ class PainelService:
                 "producao_media": round(prod_media, 2),
                 "lat": lat,
                 "lng": lng,
+                "estrategia_comercial": loja.get("estrategia_comercial", "Fidelizar"),
             })
 
             historico = loja.get("historico_share") or []
