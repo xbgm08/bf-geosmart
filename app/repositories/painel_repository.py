@@ -29,6 +29,7 @@ class PainelRepository:
             "razao_social": 1,
             "nome_fantasia": 1,
             "cnae_fiscal": 1,
+            "cnae_fiscal_descricao": 1,
             "endereco_uf": 1,
             "endereco_municipio": 1,
             "gefin_id": 1,
@@ -38,7 +39,7 @@ class PainelRepository:
             "estatisticas": 1,
             "cluster_id": 1,
             "estrategia_comercial": 1,
-            "analise_estrategia": 1,
+            "recomendacoes_gefin": 1,
         }
         return list(self.lojas_col.find(filtro_lojas, projecao))
 

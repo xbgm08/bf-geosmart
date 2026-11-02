@@ -84,6 +84,7 @@ class PainelService:
         evolucao_por_mes = defaultdict(lambda: {"meta": 0.0, "realizado": 0.0})
         producao_acumulada_anual = 0.0
         meta_acumulada_anual = 0.0
+        contagem_estrategias = defaultdict(int)
 
         for loja in lojas_raw:
             coords = (loja.get("localizacao") or {}).get("coordinates") or []
@@ -97,6 +98,10 @@ class PainelService:
 
             est = loja.get("estatisticas") or {}
             prod_media = float(est.get("producao_media") or 0.0)
+            
+            estrategia = loja.get("estrategia_comercial") or "Fidelizar"
+            contagem_estrategias[estrategia] += 1
+            recomendacoes = loja.get("recomendacoes_gefin") or []
 
             lojas_mapa.append({
                 "cnpj": loja.get("cnpj"),
@@ -110,7 +115,8 @@ class PainelService:
                 "producao_media": round(prod_media, 2),
                 "lat": lat,
                 "lng": lng,
-                "estrategia_comercial": loja.get("estrategia_comercial", "Fidelizar"),
+                "estrategia_comercial": estrategia,
+                "recomendacoes_gefin": recomendacoes,
             })
 
             historico = loja.get("historico_share") or []
@@ -175,6 +181,7 @@ class PainelService:
                 "taxa_conversao_global_pct": taxa_conversao_total,
             },
             "lojas": lojas_mapa,
+            "estrategias": dict(contagem_estrategias)
         }
 
     def _classificar_modalidade_cnae(self, cnae_fiscal) -> str:

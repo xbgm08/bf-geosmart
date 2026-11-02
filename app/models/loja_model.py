@@ -39,5 +39,8 @@ class LojaUpdate(BaseModel):
 
 class LojaResponse(LojaBase):
     cluster_id: Optional[int] = None
+    estrategia_comercial: Optional[str] = None
+    analise_estrategia: Optional[Dict[str, Any]] = None
+    recomendacoes_gefin: Optional[List[Dict[str, Any]]] = []
     estatisticas: Optional[Dict[str, Any]] = None
     historico_share: Optional[List[Dict[str, Any]]] = []
