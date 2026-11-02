@@ -1,10 +1,8 @@
-import os
 import time
-from dotenv import load_dotenv
-from pymongo import MongoClient
 from pymongo.errors import BulkWriteError, OperationFailure
 from tqdm import tqdm
 from services.datalake_service import datalake
+from services.database import cosmos_db
 
 def inserir_em_lotes(colecao, documentos, tamanho_lote=1000, nome_colecao="Documentos"):
     """Insere grandes volumes no Cosmos DB tratando limite de RU/s (16500) e chaves duplicadas (11000)."""
@@ -38,12 +36,7 @@ def inserir_em_lotes(colecao, documentos, tamanho_lote=1000, nome_colecao="Docum
                     raise
 
 def main():
-    load_dotenv(override=True)
-    uri_mongo = os.getenv("COSMOS_MONGO_URI")
-    db_name = os.getenv("COSMOS_DB_NAME", "bf_geosmart")
-
-    client = MongoClient(uri_mongo, serverSelectionTimeoutMS=20000)
-    db = client[db_name]
+    db = cosmos_db.obter_db()
 
     print("1. Extraindo bases regionalizadas do Data Lake (Camada Silver)...")
     lojas_silver = datalake.download_json("silver", "dados_sinteticos/lojas_enriquecidas.json")
@@ -97,7 +90,7 @@ def main():
     inserir_em_lotes(db["propostas"], propostas, tamanho_lote=1000, nome_colecao="Propostas")
     print(f" -> Propostas carregadas com sucesso: {db['propostas'].count_documents({})}")
 
-    client.close()
+    cosmos_db.fechar()
     print("\nIntegração Gold concluída!")
 
 if __name__ == "__main__":

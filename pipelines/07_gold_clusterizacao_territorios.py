@@ -1,22 +1,16 @@
-import os
 import numpy as np
 import pandas as pd
-from dotenv import load_dotenv
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
-from pymongo import MongoClient, UpdateOne
+from pymongo import UpdateOne
 from services.datalake_service import datalake
+from services.database import cosmos_db
 
 FATOR_TETO = 1.15
 
 def conectar_banco():
-    uri = os.getenv("COSMOS_MONGO_URI") or os.getenv("COSMOS_MONGO_CONNECTION_STRING")
-    if not uri:
-        raise ValueError("Defina COSMOS_MONGO_URI no arquivo .env.")
-    banco = os.getenv("COSMOS_DB_NAME", "bf_geosmart")
-    cliente = MongoClient(uri, serverSelectionTimeoutMS=20000)
-    return cliente, cliente[banco]
+    return cosmos_db.conectar()
 
 def carregar_dados_cosmos(db):
     print("1. Lendo Lojas e GEFINs diretamente do Cosmos DB...")
@@ -244,7 +238,6 @@ def rodar_kmeans_e_salvar(df_modelo, dados_normalizados, k_atual, k_sugerido, db
     print(" -> Backup salvo no Data Lake (gold/modelagem_final/lojas_clusterizadas_gold.json).")
 
 def main():
-    load_dotenv(override=True)
     cliente, db = conectar_banco()
 
     try:
@@ -260,7 +253,7 @@ def main():
         print("\nPipeline 07 executada com sucesso. Os clusters estão no banco!")
 
     finally:
-        cliente.close()
+        cosmos_db.fechar()
 
 if __name__ == "__main__":
     main()

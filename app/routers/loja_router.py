@@ -1,7 +1,7 @@
 import os
 from typing import Optional
 from fastapi import APIRouter, Query, status
-from pymongo import MongoClient
+from services.database import cosmos_db
 from dotenv import load_dotenv
 
 from app.models.loja_model import LojaCreate, LojaUpdate
@@ -17,10 +17,7 @@ db_name = os.getenv("COSMOS_DB_NAME", "bf_geosmart")
 if not uri_mongo:
     raise ValueError("A variável COSMOS_MONGO_URI não foi encontrada no .env")
 
-client = MongoClient(uri_mongo)
-lojas_col = client[db_name]["lojas"]
-
-# Instanciação das camadas
+lojas_col = cosmos_db.obter_colecao("lojas")
 repository = LojaRepository(lojas_col)
 service = LojaService(repository)
 

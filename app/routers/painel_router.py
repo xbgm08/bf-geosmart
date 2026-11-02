@@ -1,7 +1,7 @@
 import os
 from typing import Optional
 from fastapi import APIRouter, Query
-from pymongo import MongoClient
+from services.database import cosmos_db
 from dotenv import load_dotenv
 
 from app.repositories.painel_repository import PainelRepository
@@ -12,9 +12,7 @@ load_dotenv(override=True)
 uri_mongo = os.getenv("COSMOS_MONGO_URI")
 db_name = os.getenv("COSMOS_DB_NAME", "bf_geosmart")
 
-client = MongoClient(uri_mongo)
-db = client[db_name]
-
+db = cosmos_db.obter_db()
 repository = PainelRepository(db)
 service = PainelService(repository)
 

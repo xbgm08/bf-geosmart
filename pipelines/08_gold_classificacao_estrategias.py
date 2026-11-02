@@ -5,13 +5,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from statistics import mean, pstdev
 
-from dotenv import load_dotenv
-from pymongo import MongoClient, UpdateOne
+from pymongo import UpdateOne
+from services.database import cosmos_db
 
-load_dotenv(override=True)
-
-MONGO_URI = os.getenv("COSMOS_MONGO_URI") or os.getenv("COSMOS_MONGO_CONNECTION_STRING")
-DB_NAME = os.getenv("COSMOS_DB_NAME", "bf_geosmart")
 COLLECTION_NAME = os.getenv("COSMOS_LOJAS_COLLECTION", "lojas")
 
 # Limites de negócio (Share expresso em pontos percentuais: ex. 18.5 = 18,5%)
@@ -163,11 +159,6 @@ def classificar_estrategia(historico):
 
 
 def executar():
-    if not MONGO_URI:
-        raise RuntimeError(
-            "Defina COSMOS_MONGO_URI (ou COSMOS_MONGO_CONNECTION_STRING) no .env."
-        )
-
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from services.datalake_service import datalake
 
@@ -175,7 +166,6 @@ def executar():
     dados_silver = datalake.download_json("silver", "dados_sinteticos/historico_share.json") or []
     historicos_por_gefin = agrupar_historico_por_gefin(dados_silver)
 
-    cliente = MongoClient(MONGO_URI, serverSelectionTimeoutMS=20000)
     atualizadas = 0
     sem_historico = 0
     sem_alteracao = 0
@@ -184,8 +174,9 @@ def executar():
     contagem_estrategias = {}
 
     try:
-        cliente.admin.command("ping")
-        colecao = cliente[DB_NAME][COLLECTION_NAME]
+        db = cosmos_db.obter_db()
+        db.command("ping")
+        colecao = db[COLLECTION_NAME]
 
         print("2. Lendo lojas do Cosmos DB e classificando estratégias comerciais...")
         cursor = colecao.find(
@@ -268,7 +259,7 @@ def executar():
         print(f"Lojas não encontradas durante atualização: {nao_encontradas}")
         print(f"Distribuição por Estratégia: {contagem_estrategias}")
     finally:
-        cliente.close()
+        cosmos_db.fechar()
 
 
 if __name__ == "__main__":

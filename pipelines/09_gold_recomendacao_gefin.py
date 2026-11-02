@@ -2,9 +2,9 @@ import os
 import math
 import time
 import requests
-from dotenv import load_dotenv
-from pymongo import MongoClient, UpdateOne
+from pymongo import UpdateOne
 from services.datalake_service import datalake
+from services.database import cosmos_db
 
 RAIO_TERRA_KM = 6371.0
 
@@ -25,12 +25,7 @@ MAX_GEFINS_POR_CONSULTA = 25
 
 
 def conectar_banco():
-    uri = os.getenv("COSMOS_MONGO_URI") or os.getenv("COSMOS_MONGO_CONNECTION_STRING")
-    if not uri:
-        raise ValueError("Defina COSMOS_MONGO_URI no arquivo .env.")
-    banco = os.getenv("COSMOS_DB_NAME", "bf_geosmart")
-    cliente = MongoClient(uri, serverSelectionTimeoutMS=20000)
-    return cliente, cliente[banco]
+    return cosmos_db.conectar()
 
 
 def calcular_distancia_haversine_km(lat1, lon1, lat2, lon2):
@@ -231,7 +226,6 @@ def carregar_lojas_e_gestores(db):
 
 
 def executar():
-    load_dotenv(override=True)
     cliente, db = conectar_banco()
 
     try:
@@ -374,7 +368,7 @@ def executar():
         print(f"Rotas calculadas pelo Fallback (Haversine): {total_rotas_fallback}")
 
     finally:
-        cliente.close()
+        cosmos_db.fechar()
 
 
 if __name__ == "__main__":

@@ -1,12 +1,11 @@
-import os
 import json
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from dotenv import load_dotenv
-from pymongo import MongoClient, UpdateOne
+from pymongo import UpdateOne
 from bson import ObjectId
 from services.datalake_service import datalake
+from services.database import cosmos_db
 
 def carregar_dados_silver():
     """Lê os arquivos brutos do Data Lake (Camada Silver ou Gold inicial)."""
@@ -187,13 +186,7 @@ def normalizar_snapshot(valor):
 def salvar_cosmos_db(kpis_loja, kpis_gefin, estatisticas):
     """Grava as coleções novas e atualiza as lojas no Cosmos DB."""
     print("5. Sincronizando com o Azure Cosmos DB...")
-    uri = os.getenv("COSMOS_MONGO_URI") or os.getenv("COSMOS_MONGO_CONNECTION_STRING")
-    if not uri:
-        raise ValueError("Defina COSMOS_MONGO_URI no arquivo .env.")
-
-    banco = os.getenv("COSMOS_DB_NAME", "bf_geosmart")
-    cliente = MongoClient(uri, serverSelectionTimeoutMS=20000)
-    db = cliente[banco]
+    db = cosmos_db.obter_db()
 
     # Limpa coleções de KPI caso o script seja rodado novamente
     db["kpis_loja_mes"].drop()
@@ -243,14 +236,12 @@ def salvar_cosmos_db(kpis_loja, kpis_gefin, estatisticas):
     for i in range(0, len(operacoes), lote_size):
         db["lojas"].bulk_write(operacoes[i : i + lote_size])
 
-    cliente.close()
+    cosmos_db.fechar()
     print("Sincronização com o banco de dados concluída!")
 
     return docs_loja, docs_gefin
 
 def main():
-    load_dotenv(override=True)
-
     # 1. Carga
     colab, lojas, prop_brutas, metas, share = carregar_dados_silver()
 

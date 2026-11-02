@@ -1,21 +1,15 @@
-import os
 import re
 import time
 import random
-from pymongo import MongoClient, UpdateOne
+from pymongo import UpdateOne
 from pymongo.errors import BulkWriteError, OperationFailure
-from dotenv import load_dotenv
 from geopy.geocoders import Nominatim
 from geopy.exc import GeocoderTimedOut, GeocoderServiceError
 from tqdm import tqdm
 from services.datalake_service import datalake
+from services.database import cosmos_db
 
-load_dotenv(override=True)
-uri_mongo = os.getenv("COSMOS_MONGO_URI")
-db_name = os.getenv("COSMOS_DB_NAME", "bf_geosmart")
-
-client = MongoClient(uri_mongo, serverSelectionTimeoutMS=20000)
-db = client[db_name]
+db = cosmos_db.obter_db()
 lojas_col = db["lojas"]
 
 # Identificador da nossa aplicação para o serviço de mapas
@@ -248,4 +242,4 @@ if __name__ == "__main__":
     try:
         rodar_geocodificacao_batch()
     finally:
-        client.close()
+        cosmos_db.fechar()
