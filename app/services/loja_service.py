@@ -2,6 +2,7 @@ from typing import Optional
 from fastapi import HTTPException
 from app.repositories.loja_repository import LojaRepository
 from app.models.loja_model import LojaCreate, LojaUpdate
+from services.pubsub_service import pubsub_service
 
 class LojaService:
     def __init__(self, repository: LojaRepository):
@@ -23,6 +24,16 @@ class LojaService:
         loja_dict["historico_share"] = []
 
         id_doc = self.repository.criar(loja_dict)
+        
+        pubsub_service.publicar_evento(
+            tipo_evento="LOJA_CRIADA",
+            dados={
+                "cnpj": loja_dict["cnpj"],
+                "uf": loja_dict["endereco_uf"],
+                "gefin_id": loja_dict.get("gefin_id"),
+            },
+        )
+        
         return {"mensagem": "Loja registada com sucesso", "id_documento": id_doc}
 
     def consultar_lojas(self, uf: Optional[str] = None, tier: Optional[str] = None, gefin_id: Optional[str] = None, busca: Optional[str] = None, skip: int = 0, limit: int = 20,) -> list:
@@ -66,9 +77,24 @@ class LojaService:
         matched = self.repository.atualizar(cnpj, update_data)
         if matched == 0:
             raise HTTPException(status_code=404, detail="Loja não encontrada.")
+
+        pubsub_service.publicar_evento(
+            tipo_evento="LOJA_ATUALIZADA",
+            dados={
+                "cnpj": cnpj,
+                "uf": update_data.get("endereco_uf"),
+                "gefin_id": update_data.get("gefin_id"),
+                "campos_alterados": update_data,
+            },
+        )
         return {"mensagem": "Loja atualizada com sucesso"}
 
     def remover_loja(self, cnpj: str):
         deleted = self.repository.deletar(cnpj)
         if deleted == 0:
             raise HTTPException(status_code=404, detail="Loja não encontrada.")
+
+        pubsub_service.publicar_evento(
+            tipo_evento="LOJA_REMOVIDA",
+            dados={"cnpj": cnpj},
+        )
